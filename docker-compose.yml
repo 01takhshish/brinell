@@ -1,0 +1,35 @@
+# Local dependencies. Ports are deliberately non-default (5434 / 6380) because 5432 and 6379 are
+# usually already taken by another project on a developer machine, and a port collision at 9pm is
+# a worse first impression than an unusual number in a URL.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: crucible-postgres
+    environment:
+      POSTGRES_USER: crucible
+      POSTGRES_PASSWORD: crucible
+      POSTGRES_DB: crucible
+    ports:
+      - "${POSTGRES_HOST_PORT:-5434}:5432"
+    volumes:
+      - crucible-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crucible -d crucible"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: crucible-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${REDIS_HOST_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  crucible-pgdata:

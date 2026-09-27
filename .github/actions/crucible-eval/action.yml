@@ -1,0 +1,164 @@
+name: Crucible eval
+description: >
+  Run a Crucible evaluation suite against the current commit and fail the job if a case that used to
+  pass now fails.
+
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  api-url:
+    description: Base URL of the Crucible API.
+    required: true
+  app-url:
+    description: Base URL of the Crucible web app, used only to link the run from the job summary.
+    required: false
+    default: ''
+  api-key:
+    description: >
+      Project-scoped API key (crk_…). Pass it from a repository secret — it is scoped to one
+      project and cannot mint further keys, but it can start runs that cost money.
+    required: true
+  suite:
+    description: Suite name, as written in crucible.yaml.
+    required: false
+    default: default
+  target:
+    description: Target name. Only needed when the project has more than one.
+    required: false
+    default: ''
+  config:
+    description: Path to crucible.yaml, if it is not at the repository root.
+    required: false
+    default: ''
+  baseline:
+    description: >
+      Run id to compare against. Leave empty to use the run's own recorded baseline, which is the
+      last successful run of the same suite on the default branch.
+    required: false
+    default: ''
+  fail-on-regression:
+    description: Fail the job when a case that passed in the baseline now fails.
+    required: false
+    default: 'true'
+  threshold:
+    description: Fail the job when the pass rate is below this fraction, e.g. 0.95. Empty disables.
+    required: false
+    default: ''
+  push:
+    description: Upload targets, datasets and suites before running. Idempotent.
+    required: false
+    default: 'true'
+  timeout:
+    description: Seconds to wait for the run before giving up. The run itself continues server-side.
+    required: false
+    default: '1800'
+  version:
+    description: >
+      Pip requirement for the CLI. Defaults to the published package; use `./backend` to install
+      from the checkout, or `crucible==1.0.0` to pin.
+    required: false
+    default: crucible
+
+outputs:
+  run-id:
+    description: The id of the run this action started.
+    value: ${{ steps.eval.outputs.run-id }}
+  pass-rate:
+    description: Fraction of cases that passed, as a decimal string.
+    value: ${{ steps.eval.outputs.pass-rate }}
+  status:
+    description: succeeded, failed, or cancelled.
+    value: ${{ steps.eval.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install the Crucible CLI
+      shell: bash
+      run: pip install --quiet '${{ inputs.version }}'
+
+    - name: Push the registry
+      if: inputs.push == 'true'
+      shell: bash
+      env:
+        CRUCIBLE_API_URL: ${{ inputs.api-url }}
+        CRUCIBLE_API_KEY: ${{ inputs.api-key }}
+        CONFIG: ${{ inputs.config }}
+      run: |
+        if [ -n "$CONFIG" ]; then crucible push --config "$CONFIG"; else crucible push; fi
+
+    - name: Run the suite
+      id: eval
+      shell: bash
+      env:
+        CRUCIBLE_API_URL: ${{ inputs.api-url }}
+        CRUCIBLE_API_KEY: ${{ inputs.api-key }}
+        SUITE: ${{ inputs.suite }}
+        TARGET: ${{ inputs.target }}
+        CONFIG: ${{ inputs.config }}
+        BASELINE: ${{ inputs.baseline }}
+        THRESHOLD: ${{ inputs.threshold }}
+        GATE: ${{ inputs.fail-on-regression }}
+        TIMEOUT: ${{ inputs.timeout }}
+      run: |
+        # Inputs travel through the environment rather than through `${{ }}` interpolation into the
+        # script body: a suite name is repository-controlled text, and interpolating it would let a
+        # branch inject shell.
+        args=(--suite "$SUITE" --timeout "$TIMEOUT" --json)
+        if [ -n "$TARGET" ];    then args+=(--target "$TARGET"); fi
+        if [ -n "$CONFIG" ];    then args+=(--config "$CONFIG"); fi
+        if [ -n "$BASELINE" ];  then args+=(--baseline "$BASELINE"); fi
+        if [ -n "$THRESHOLD" ]; then args+=(--threshold "$THRESHOLD"); fi
+        if [ "$GATE" = "true" ]; then args+=(--fail-on-regression); fi
+
+        # The exit code is the gate, so it is captured rather than allowed to end the step here:
+        # the outputs below still have to be written for the summary, and then it is re-raised.
+        set +e
+        crucible run "${args[@]}" | tee run.log
+        code=${PIPESTATUS[0]}
+        set -e
+
+        python - <<'PY' >> "$GITHUB_OUTPUT"
+        import json, pathlib, re
+
+        # `--json` prints the finished run, so these outputs are the run's own numbers rather than
+        # something scraped out of a rendered table. Progress lines precede it and contain no braces.
+        text = pathlib.Path("run.log").read_text()
+        match = re.search(r"\{.*\}", text, re.S)
+        run = json.loads(match.group(0)) if match else {}
+        rate = run.get("pass_rate")
+        print(f"run-id={run.get('id', '')}")
+        print(f"status={run.get('status', 'unknown')}")
+        print(f"pass-rate={'' if rate is None else rate}")
+        PY
+
+        exit "$code"
+
+    - name: Summarise on the job page
+      if: always() && steps.eval.outputs.run-id != ''
+      shell: bash
+      env:
+        SUITE: ${{ inputs.suite }}
+        RUN_ID: ${{ steps.eval.outputs.run-id }}
+        STATUS: ${{ steps.eval.outputs.status }}
+        RATE: ${{ steps.eval.outputs.pass-rate }}
+        APP_URL: ${{ inputs.app-url }}
+      run: |
+        link="\`$RUN_ID\`"
+        if [ -n "$APP_URL" ]; then link="[\`$RUN_ID\`]($APP_URL/runs/$RUN_ID)"; fi
+        {
+          echo "### Crucible — suite \`$SUITE\`"
+          echo
+          echo "| | |"
+          echo "|---|---|"
+          echo "| status | \`$STATUS\` |"
+          echo "| pass rate | ${RATE:-n/a} |"
+          echo "| run | $link |"
+        } >> "$GITHUB_STEP_SUMMARY"

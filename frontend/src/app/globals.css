@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/*
+ * A control-panel palette rather than a marketing one. Two rules hold it together:
+ * numbers are tabular and monospaced so columns line up and a changing digit does not reflow the
+ * row, and status colour is the only saturated colour on the page — if something is red here, it
+ * is red because a case failed, never because a designer liked red.
+ */
+:root {
+  --bg: #fbfbfa;
+  --panel: #ffffff;
+  --border: #e4e4e1;
+  --border-strong: #d0d0cc;
+  --text: #16161a;
+  --muted: #6b6b73;
+  --faint: #9a9aa2;
+  --accent: #b4530a;
+  --pass: #1a7f4b;
+  --fail: #c02626;
+  --warn: #9a6400;
+  --info: #2a5db0;
+  --pass-bg: #e8f4ec;
+  --fail-bg: #fbeaea;
+  --warn-bg: #fbf2e0;
+  --info-bg: #e9f0fb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101013;
+    --panel: #17171b;
+    --border: #26262c;
+    --border-strong: #34343c;
+    --text: #ececf0;
+    --muted: #9a9aa4;
+    --faint: #6a6a74;
+    --accent: #e08a3c;
+    --pass: #4ec287;
+    --fail: #f0736d;
+    --warn: #e0b04a;
+    --info: #74a4f0;
+    --pass-bg: #12291e;
+    --fail-bg: #2c1618;
+    --warn-bg: #2a2214;
+    --info-bg: #151f30;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-pass: var(--pass);
+  --color-fail: var(--fail);
+  --color-warn: var(--warn);
+  --color-info: var(--info);
+  --color-pass-bg: var(--pass-bg);
+  --color-fail-bg: var(--fail-bg);
+  --color-warn-bg: var(--warn-bg);
+  --color-info-bg: var(--info-bg);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-stack), ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-feature-settings: "cv05", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every number in the app. Tabular figures keep a column of costs from jittering as it updates. */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Long agent output and JSON blobs: wrap, never blow out the page width. */
+.wrap-anywhere {
+  overflow-wrap: anywhere;
+}
